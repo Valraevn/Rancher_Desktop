@@ -1,3 +1,20 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ollama
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: ollama-pvc
+  namespace: ollama
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi   # adjust based on how many models you want to store
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -13,6 +30,19 @@ spec:
       labels:
         app: ollama
     spec:
+      initContainers:
+      - name: preload-models
+        image: ollama/ollama:latest
+        command:
+          - sh
+          - -c
+          - |
+            echo "Pulling models..."
+            ollama pull gemma:2b || true
+            ollama pull phi:2.7b || true
+        volumeMounts:
+          - name: ollama-data
+            mountPath: /root/.ollama
       containers:
       - name: ollama
         image: ollama/ollama:latest
@@ -25,8 +55,13 @@ spec:
           limits:
             memory: "8Gi"
             cpu: "8"
-
-
+        volumeMounts:
+        - name: ollama-data
+          mountPath: /root/.ollama
+      volumes:
+      - name: ollama-data
+        persistentVolumeClaim:
+          claimName: ollama-pvc
 ---
 apiVersion: v1
 kind: Service
@@ -34,15 +69,21 @@ metadata:
   name: ollama-service
   namespace: ollama
 spec:
-  type: NodePort
+  type: ClusterIP
   selector:
     app: ollama
   ports:
   - protocol: TCP
     port: 11434
     targetPort: 11434
-    nodePort: 31134
-
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: openwebui-config
+  namespace: ollama
+data:
+  OLLAMA_API_BASE_URL: "http://ollama-service.ollama.svc.cluster.local:11434"
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -64,9 +105,9 @@ spec:
         image: ghcr.io/open-webui/open-webui:latest
         ports:
         - containerPort: 8080
-        env:
-        - name: OLLAMA_API_BASE_URL
-          value: "http://ollama-service.ollama.svc.cluster.local:11434"
+        envFrom:
+        - configMapRef:
+            name: openwebui-config
 ---
 apiVersion: v1
 kind: Service
@@ -82,3 +123,4 @@ spec:
     port: 8080
     targetPort: 8080
     nodePort: 31808
+    
