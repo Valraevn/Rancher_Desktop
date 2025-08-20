@@ -13,7 +13,7 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 20Gi   # adjust based on how many models you want to store
+      storage: 20Gi
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -78,12 +78,16 @@ spec:
     targetPort: 11434
 ---
 apiVersion: v1
-kind: ConfigMap
+kind: PersistentVolumeClaim
 metadata:
-  name: openwebui-config
+  name: openwebui-pvc
   namespace: ollama
-data:
-  OLLAMA_API_BASE_URL: "http://ollama-service.ollama.svc.cluster.local:11434"
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -105,9 +109,16 @@ spec:
         image: ghcr.io/open-webui/open-webui:latest
         ports:
         - containerPort: 8080
-        envFrom:
-        - configMapRef:
-            name: openwebui-config
+        env:
+        - name: OLLAMA_BASE_URL
+          value: "http://ollama-service:11434"
+        volumeMounts:
+        - name: openwebui-data
+          mountPath: /app/backend/data
+      volumes:
+      - name: openwebui-data
+        persistentVolumeClaim:
+          claimName: openwebui-pvc
 ---
 apiVersion: v1
 kind: Service
@@ -123,4 +134,3 @@ spec:
     port: 8080
     targetPort: 8080
     nodePort: 31808
-    
